@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+    Cloudformation Template for Gelisim's carousel static website on S3. This static website is distributed by cloudfront. Cloudfront DNS is published by Route 53 using full domain name.
+
+Parameters:
+    DomainName:
+      Description: AWS Route 53 hosted zone ex. aydin09.org
+      Type: AWS::Route53::HostedZone::Id
+    GelisimsDomainName:
+      Description: Full domain name for the Application gelisimkizyurdu.aydin09.org
+      Type: String
+      AllowedPattern: (?!-)[a-zA-Z0-9-.]{1,63}(?<!-)
+
+Resources:
+  GelisimsBucket:
+    Type: "AWS::S3::Bucket"
+    Properties: 
+      AccessControl: PublicRead
+      BucketName: !Ref GelisimsDomainName
+      WebsiteConfiguration: 
+         IndexDocument: index.html
+  GelisimsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref GelisimsBucket
+      PolicyDocument: 
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'GelisimsBucket', /*]]
+  GelisimsCertificate:
+    Type: "AWS::CertificateManager::Certificate"
+    Properties:
+      CertificateTransparencyLoggingPreference: ENABLED
+      
+      DomainName: !Ref GelisimsDomainName 
+      DomainValidationOptions:
+        - DomainName: !Ref GelisimsDomainName
+          HostedZoneId: !Ref DomainName
+      ValidationMethod: DNS
+  GelisimsCloudfront:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig: #required
+        Aliases: 
+        - !Ref GelisimsDomainName
+        Comment: Cloudfront Distribution pointing to Gelisims S3 bucket
+        DefaultCacheBehavior: 
+          AllowedMethods: 
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues: 
+            Cookies: 
+              Forward: none
+            QueryString: true
+          TargetOriginId: GelisimsOrigin
+          ViewerProtocolPolicy: allow-all
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: 'http2'
+        Origins: 
+        - DomainName: !Select [2, !Split ["/", !GetAtt GelisimsBucket.WebsiteURL]]
+          Id: GelisimsOrigin
+          CustomOriginConfig:
+            OriginProtocolPolicy: http-only
+        PriceClass: PriceClass_All
+        ViewerCertificate: 
+          AcmCertificateArn: !Ref GelisimsCertificate
+          SslSupportMethod: sni-only
+  GelisimsDNSName:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref DomainName
+      RecordSets: 
+        - Name: !Ref GelisimsDomainName
+          Type: A
+          AliasTarget:
+            HostedZoneId: Z2FDTNDATAQYW2
+            DNSName: !GetAtt GelisimsCloudfront.DomainName 
+Outputs:
+  BucketName: 
+    Description: S3 Bucket URL for Gelisims Website
+    Value: !GetAtt GelisimsBucket.WebsiteURL
+  CloudfrontEndpoint:
+    Description: Endpoint for Gelisims Cloudfront
+    Value: !GetAtt GelisimsCloudfront.DomainName
+  FullDomainName:
+    Description: Full Domain Name of my Application
+    Value: !Ref GelisimsDomainName
